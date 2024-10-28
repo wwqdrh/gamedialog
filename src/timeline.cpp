@@ -1,6 +1,7 @@
 #include "timeline.h"
 #include "word.h"
 #include <memory>
+#include <variant>
 
 namespace gamedialog {
 // =====
@@ -28,6 +29,7 @@ Timeline::Timeline(const std::string &data) {
       }
       cur_stage = line.substr(1, line.length() - 2);
       stage_map[cur_stage] = dialogue_keys.size();
+      stage_list.push_back(cur_stage);
     }
     // 处理角色名称 (name1,name2)
     else if (line[0] == '(' && line.back() == ')') {
@@ -51,13 +53,34 @@ Timeline::Timeline(const std::string &data) {
   }
 }
 
+std::string Timeline::current_stage() {
+  if (current_ >= dialogue_keys.size()) {
+    return "";
+  }
+  auto cur = dialogue_keys[current_];
+  if (std::holds_alternative<std::shared_ptr<DialogueWord>>(cur)) {
+    return std::get<std::shared_ptr<DialogueWord>>(cur)->get_stage();
+  } else if (std::holds_alternative<std::shared_ptr<ControlFlow>>(cur)) {
+    return std::get<std::shared_ptr<ControlFlow>>(cur)->get_stage_name();
+  }
+  return "";
+}
+
 std::shared_ptr<DialogueWord> Timeline::next() {
   if (!has_next()) {
     return nullptr;
   }
-  std::shared_ptr<DialogueWord> ret = dialogue_keys[current_];
-  current_++;
-  return ret;
+  auto cur = dialogue_keys[current_];
+  if (std::holds_alternative<std::shared_ptr<DialogueWord>>(cur)) {
+    return std::get<std::shared_ptr<DialogueWord>>(dialogue_keys[current_++]);
+  } else if (std::holds_alternative<std::shared_ptr<ControlFlow>>(cur)) {
+    // 说明当前是controlflow
+    auto flow = std::get<std::shared_ptr<ControlFlow>>(cur);
+    flow->execute(this);
+    return next();
+  } else {
+    return nullptr;
+  }
 }
 
 std::vector<std::string> Timeline::all_stages() {
@@ -112,6 +135,12 @@ void Timeline::_parse_section(const std::string stage_name,
       if (cur != nullptr) {
         cur->add_fn(trim_prefix(word, "@"));
       }
+    }
+    // 控制流程
+    else if (starts_with(word, ":")) {
+      auto flow = ControlFlowFactory::createFromString(word);
+      flow->set_stage_name(stage_name);
+      dialogue_keys.push_back(flow);
     }
     // 处理普通对话
     else {

@@ -5,13 +5,20 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <variant>
 #include <vector>
 namespace gamedialog {
+class ControlFlow;
 class Timeline {
+public:
+  using LineVariant =
+      std::variant<std::shared_ptr<DialogueWord>, std::shared_ptr<ControlFlow>>;
+
 private:
-  std::vector<std::shared_ptr<DialogueWord>> dialogue_keys;
+  std::vector<LineVariant> dialogue_keys;
   int current_ = 0;
   std::map<std::string, int> stage_map;
+  std::vector<std::string> stage_list;
 
 public:
   Timeline() = delete;
@@ -22,14 +29,22 @@ public:
   bool has_next() const { return current_ < dialogue_keys.size(); }
   void goto_stage(const std::string &stage);
   void goto_begin() { current_ = 0; }
+  void goto_end() { current_ = dialogue_keys.size(); }
+  void skip_stage_count(int count) {
+    // 寻找当前stage在stage_list中的位置,
+    // 然后加count，超过则置为stage_list.size()，然后从stage_map找到对应的下标然后更新current_
+    int index =
+        std::find(stage_list.begin(), stage_list.end(), current_stage()) -
+        stage_list.begin();
+    index += count;
+    if (index > stage_list.size() - 1) {
+      index = stage_list.size() - 1;
+    }
+    current_ = stage_map[stage_list[index]];
+  }
   std::vector<std::string> all_stages();
   int stage_index(const std::string &label);
-  std::string current_stage() {
-    if (current_ < dialogue_keys.size()) {
-      return dialogue_keys[current_]->get_stage();
-    }
-    return "";
-  }
+  std::string current_stage();
 
 private:
   void _parse_section(const std::string stage_name,
@@ -84,6 +99,106 @@ private:
   bool ends_with(const std::string &str, const std::string &suffix) const {
     return str.size() >= suffix.size() &&
            str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+  }
+};
+
+// 基础控制流类
+class ControlFlow {
+public:
+  std::string stage_name;
+
+public:
+  virtual ~ControlFlow() = default;
+  virtual void execute(Timeline *timeline) = 0;
+  virtual std::string getName() const = 0;
+
+public:
+  void set_stage_name(const std::string &name) { stage_name = name; }
+  const std::string &get_stage_name() const { return stage_name; }
+};
+
+// Start分支 - 回到开头
+class StartFlow : public ControlFlow {
+public:
+  void execute(Timeline *timeline_) override {
+    // 实现回到开头的逻辑
+    if (timeline_) {
+      timeline_->goto_begin();
+    }
+  }
+
+  std::string getName() const override { return "start"; }
+};
+
+// End分支 - 退出
+class EndFlow : public ControlFlow {
+public:
+  void execute(Timeline *timeline_) override {
+    if (timeline_) {
+      timeline_->goto_end();
+    }
+  }
+
+  std::string getName() const override { return "end"; }
+};
+
+// Skip分支 - 跳过n个stage
+class SkipFlow : public ControlFlow {
+private:
+  int skipCount;
+
+public:
+  explicit SkipFlow(int count) : skipCount(count) {}
+
+  void execute(Timeline *timeline_) override {
+    if (timeline_) {
+      timeline_->skip_stage_count(skipCount);
+    }
+  }
+
+  std::string getName() const override { return "skip"; }
+
+  int getSkipCount() const { return skipCount; }
+};
+
+// Goto分支 - 跳转到指定stage
+class GotoFlow : public ControlFlow {
+private:
+  std::string targetName;
+
+public:
+  explicit GotoFlow(const std::string &name) : targetName(name) {}
+
+  void execute(Timeline *timeline_) override {
+    if (timeline_) {
+      timeline_->goto_stage(targetName);
+    }
+  }
+
+  std::string getName() const override { return "goto"; }
+
+  std::string getTargetName() const { return targetName; }
+};
+
+// 控制流工厂类
+class ControlFlowFactory {
+public:
+  static std::shared_ptr<ControlFlow>
+  createFromString(const std::string &command) {
+    // 解析命令字符串
+    if (command == ":start") {
+      return std::make_shared<StartFlow>();
+    } else if (command == ":end") {
+      return std::make_shared<EndFlow>();
+    } else if (command.substr(0, 6) == ":skip:") {
+      int count = std::stoi(command.substr(6));
+      return std::make_shared<SkipFlow>(count);
+    } else if (command.substr(0, 6) == ":goto:") {
+      std::string target = command.substr(6);
+      return std::make_shared<GotoFlow>(target);
+    } else {
+      return nullptr;
+    }
   }
 };
 } // namespace gamedialog

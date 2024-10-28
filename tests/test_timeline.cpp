@@ -40,3 +40,36 @@ answer no!!
   parser.goto_begin();
   ASSERT_EQ(parser.current_stage(), "stage1");
 }
+
+
+TEST(TimelineTest, TestControlFlow) {
+  // 各种控制分支
+  // :start 回到开头
+  // :end 表示退出
+  // :skip:1 表示跳过n个stage
+  // :goto:name 跳转到指定的stage
+  Timeline parser(R"(
+[stage1]
+(John)
+Hello there!
+:skip:2
+
+[next_scene]
+(Mary)
+answer yes!!
+
+[end_scene]
+(John)
+answer no!!
+:start
+)");
+
+  auto stages = parser.all_stages();
+  ASSERT_EQ(3, stages.size());
+  parser.next();
+  ASSERT_EQ(parser.current_stage(), "stage1");
+  parser.next(); // skip:2 + next
+  ASSERT_EQ(parser.current_stage(), "end_scene");
+  parser.next(); // :start + next
+  ASSERT_EQ(parser.current_stage(), "stage1");
+}
