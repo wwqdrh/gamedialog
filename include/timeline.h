@@ -26,7 +26,7 @@ public:
 
 public:
   std::shared_ptr<DialogueWord> next();
-  bool has_next() const { return current_ < dialogue_keys.size(); }
+  bool has_next() const;
   void goto_stage(const std::string &stage);
   void goto_begin() { current_ = 0; }
   void goto_end() { current_ = dialogue_keys.size(); }
@@ -43,6 +43,9 @@ public:
     current_ = stage_map[stage_list[index]];
   }
   std::vector<std::string> all_stages();
+  bool has_stage(const std::string &name) const {
+    return stage_map.find(name) != stage_map.end();
+  }
   int stage_index(const std::string &label);
   std::string current_stage();
 
@@ -110,6 +113,7 @@ public:
 public:
   virtual ~ControlFlow() = default;
   virtual void execute(Timeline *timeline) = 0;
+  virtual bool hasNext(const Timeline &timeline) const = 0;
   virtual std::string getName() const = 0;
 
 public:
@@ -128,6 +132,7 @@ public:
   }
 
   std::string getName() const override { return "start"; }
+  bool hasNext(const Timeline &timeline) const override { return true; }
 };
 
 // End分支 - 退出
@@ -140,6 +145,7 @@ public:
   }
 
   std::string getName() const override { return "end"; }
+  bool hasNext(const Timeline &timeline) const override { return false; }
 };
 
 // Skip分支 - 跳过n个stage
@@ -157,6 +163,7 @@ public:
   }
 
   std::string getName() const override { return "skip"; }
+  bool hasNext(const Timeline &timeline) const override { return true; }
 
   int getSkipCount() const { return skipCount; }
 };
@@ -176,7 +183,9 @@ public:
   }
 
   std::string getName() const override { return "goto"; }
-
+  bool hasNext(const Timeline &timeline) const override { 
+    return timeline.has_stage(targetName);
+   }
   std::string getTargetName() const { return targetName; }
 };
 

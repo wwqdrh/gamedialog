@@ -66,6 +66,21 @@ std::string Timeline::current_stage() {
   return "";
 }
 
+bool Timeline::has_next() const {
+  if (current_ >= dialogue_keys.size()) {
+    return false;
+  }
+  // 判断当前如果是标签，如果是:end那么就没有了
+  if (std::holds_alternative<std::shared_ptr<ControlFlow>>(
+          dialogue_keys[current_])) {
+    if (auto ptr =
+            std::get<std::shared_ptr<ControlFlow>>(dialogue_keys[current_])) {
+      return ptr->hasNext(*this);
+    }
+  }
+  return true;
+}
+
 std::shared_ptr<DialogueWord> Timeline::next() {
   if (!has_next()) {
     return nullptr;
