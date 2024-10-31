@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "timeline.h"
+#include "flow.h"
 
 using namespace gamedialog;
 

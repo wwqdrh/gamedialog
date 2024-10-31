@@ -1,107 +1,121 @@
-#include "timeline.h"
 #include "word.h"
 #include <memory>
 #include <variant>
+#include <vector>
+
+#include "flow.h"
+#include "timeline.h"
 
 namespace gamedialog {
 // =====
 // public
 // =====
+void Timeline::goto_begin() {
+  stages[current_]->clean();
+  current_ = 0;
+}
+void Timeline::goto_end() {
+  stages[current_]->clean();
+  current_ = stages.size();
+}
+void Timeline::skip_stage_count(int count) {
+  stages[current_]->clean();
+  current_ += count;
+  if (current_ > stages.size() - 1) {
+    current_ = stages.size();
+  }
+}
 Timeline::Timeline(const std::string &data) {
-  std::vector<std::string> cur_names;
-  std::vector<std::string> cur_word;
   std::istringstream stream(data);
   std::string line;
 
-  std::string cur_stage = "";
+  std::string tt = "";
+  std::vector<std::string> cur_secions;
   while (std::getline(stream, line)) {
-    // 跳过注释和空行
-    if (line[0] == '#' || is_empty(strip(line))) {
+    if (line == "") {
       continue;
     }
-
     // 处理场景标记 [scene]
     if (line[0] == '[' && line.back() == ']') {
-      if (!cur_names.empty() && !cur_word.empty()) {
-        _parse_section(cur_stage, cur_names, cur_word);
-        cur_names.clear();
-        cur_word.clear();
+      if (!cur_secions.empty() && tt != "") {
+        // 解析stage
+        auto cur = std::make_shared<DiaStage>(cur_secions);
+        stages.push_back(cur);
+        cur->set_timeline(this);
+        stage_map[cur->get_stage_name()] = stages.size() - 1;
+        cur_secions.clear();
+        tt = "";
       }
-      cur_stage = line.substr(1, line.length() - 2);
-      stage_map[cur_stage] = dialogue_keys.size();
-      stage_list.push_back(cur_stage);
+      tt = line.substr(1, line.length() - 2);
     }
-    // 处理角色名称 (name1,name2)
-    else if (line[0] == '(' && line.back() == ')') {
-      if (!cur_names.empty() && !cur_word.empty()) {
-        _parse_section(cur_stage, cur_names, cur_word);
-        cur_names.clear();
-        cur_word.clear();
-      }
-      std::string names_str = line.substr(1, line.length() - 2);
-      cur_names = split(names_str, ',');
-    }
-    // 处理对话内容
-    else {
-      cur_word.push_back(line);
-    }
+    cur_secions.push_back(line);
   }
 
   // 处理最后一段对话
-  if (!cur_names.empty() && !cur_word.empty()) {
-    _parse_section(cur_stage, cur_names, cur_word);
+  if (!cur_secions.empty()) {
+    // _parse_section(cur_stage, cur_names, cur_word);
+    // 解析stage
+    auto cur = std::make_shared<DiaStage>(cur_secions);
+    stages.push_back(cur);
+    cur->set_timeline(this);
+    stage_map[cur->get_stage_name()] = stages.size() - 1;
   }
 }
 
 std::string Timeline::current_stage() {
-  if (current_ >= dialogue_keys.size()) {
+  if (current_ >= stages.size()) {
     return "";
   }
-  auto cur = dialogue_keys[current_];
-  if (std::holds_alternative<std::shared_ptr<DialogueWord>>(cur)) {
-    return std::get<std::shared_ptr<DialogueWord>>(cur)->get_stage();
-  } else if (std::holds_alternative<std::shared_ptr<ControlFlow>>(cur)) {
-    return std::get<std::shared_ptr<ControlFlow>>(cur)->get_stage_name();
+  auto cur = stages[current_];
+  if (cur != nullptr) {
+    return cur->get_stage_name();
   }
   return "";
 }
 
 bool Timeline::has_next() const {
-  if (current_ >= dialogue_keys.size()) {
+  if (current_ >= stages.size()) {
     return false;
   }
   // 判断当前如果是标签，如果是:end那么就没有了
-  if (std::holds_alternative<std::shared_ptr<ControlFlow>>(
-          dialogue_keys[current_])) {
-    if (auto ptr =
-            std::get<std::shared_ptr<ControlFlow>>(dialogue_keys[current_])) {
-      return ptr->hasNext(*this);
+  return stages[current_]->has_next();
+}
+
+void Timeline::check_flag() {
+  if (fn == nullptr) {
+    return;
+  }
+  // 找到第一个满足flag的stage
+  for (auto item : stages) {
+    auto flags = item->get_flags();
+    bool isok = true;
+    for (auto flag : flags) {
+      if (!fn(flag)) {
+        isok = false;
+        break;
+      }
+    }
+    if (isok) {
+      goto_stage(item->get_stage_name());
+      return;
     }
   }
-  return true;
+  // 没有一个满足条件的
+  goto_end();
 }
 
 std::shared_ptr<DialogueWord> Timeline::next() {
+  check_flag();
   if (!has_next()) {
     return nullptr;
   }
-  auto cur = dialogue_keys[current_];
-  if (std::holds_alternative<std::shared_ptr<DialogueWord>>(cur)) {
-    return std::get<std::shared_ptr<DialogueWord>>(dialogue_keys[current_++]);
-  } else if (std::holds_alternative<std::shared_ptr<ControlFlow>>(cur)) {
-    // 说明当前是controlflow
-    auto flow = std::get<std::shared_ptr<ControlFlow>>(cur);
-    flow->execute(this);
-    return next();
-  } else {
-    return nullptr;
-  }
+  return stages[current_]->next();
 }
 
 std::vector<std::string> Timeline::all_stages() {
   std::vector<std::string> ret;
-  for (const auto &pair : stage_map) {
-    ret.push_back(pair.first);
+  for (auto item : stages) {
+    ret.push_back(item->get_stage_name());
   }
   return ret;
 }
@@ -110,6 +124,7 @@ void Timeline::goto_stage(const std::string &stage) {
   if (stage_map.find(stage) == stage_map.end()) {
     return;
   }
+  stages[current_]->clean();
   current_ = stage_map[stage];
 }
 
@@ -118,57 +133,5 @@ int Timeline::stage_index(const std::string &label) {
     return -1;
   }
   return stage_map[label];
-}
-
-// =====
-// private
-// ====
-void Timeline::_parse_section(const std::string stage_name,
-                              const std::vector<std::string> &names,
-                              const std::vector<std::string> &words) {
-  int curindex = 0;
-  std::shared_ptr<DialogueWord> cur = nullptr;
-
-  for (const auto &word : words) {
-    // 跳过注释和空行
-    if (starts_with(word, "#") || word.empty()) {
-      continue;
-    }
-
-    // 处理响应选项
-    if (starts_with(word, "-")) {
-      if (cur != nullptr) {
-        std::string response = trim_prefix(word, "-");
-        auto parts = split(response, ':');
-        if (parts.size() == 2) {
-          cur->add_response(parts[0], parts[1]);
-        }
-      }
-    }
-    // 处理函数调用
-    else if (starts_with(word, "@")) {
-      if (cur != nullptr) {
-        cur->add_fn(trim_prefix(word, "@"));
-      }
-    }
-    // 控制流程
-    else if (starts_with(word, ":")) {
-      auto flow = ControlFlowFactory::createFromString(word);
-      flow->set_stage_name(stage_name);
-      dialogue_keys.push_back(flow);
-    }
-    // 处理普通对话
-    else {
-      cur = std::make_shared<DialogueWord>();
-      cur->set_stage(stage_name);
-      cur->set_name(names[curindex]);
-      cur->set_text(trim_suffix(word, "+"));
-      dialogue_keys.push_back(cur);
-
-      if (!ends_with(word, "+")) {
-        curindex = (curindex + 1) % names.size();
-      }
-    }
-  }
 }
 } // namespace gamedialog

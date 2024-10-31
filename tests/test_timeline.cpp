@@ -41,7 +41,6 @@ answer no!!
   ASSERT_EQ(parser.current_stage(), "stage1");
 }
 
-
 TEST(TimelineTest, TestControlFlow) {
   // 各种控制分支
   // :start 回到开头
@@ -72,17 +71,24 @@ answer no!!
 
   auto stages = parser.all_stages();
   ASSERT_EQ(4, stages.size());
-  parser.next();
+  ASSERT_EQ(parser.next()->get_name(), "John");
   ASSERT_EQ(parser.current_stage(), "stage1");
-  parser.next(); // skip:2 + next
+  ASSERT_TRUE(parser.has_next());
+  parser.next(); // skip:2
+  ASSERT_TRUE(parser.has_next());
   ASSERT_EQ(parser.current_stage(), "end_scene");
-  parser.next(); // :start + next
+  ASSERT_EQ(parser.next()->get_text(), "answer no!!");
+  ASSERT_TRUE(parser.has_next());
+  parser.next(); // :start
+  ASSERT_EQ(parser.current_stage(), "stage1");
+  ASSERT_EQ(parser.next()->get_text(), "Hello there!");
   ASSERT_EQ(parser.current_stage(), "stage1");
 
   // 测试end
   parser.goto_stage("next_scene");
   ASSERT_EQ(parser.current_stage(), "next_scene");
   ASSERT_TRUE(parser.has_next());
+  parser.next();
   parser.next();
   ASSERT_FALSE(parser.has_next()); // 当前是:end标签，那么就没有下一个元素了
 
@@ -91,5 +97,27 @@ answer no!!
   ASSERT_EQ(parser.current_stage(), "goto_scene");
   ASSERT_TRUE(parser.has_next());
   parser.next();
+  parser.next();
   ASSERT_FALSE(parser.has_next()); // 当前是:end标签，那么就没有下一个元素了
+}
+
+TEST(TimelineTest, TestStagePreCheck) {
+  Timeline parser(R"(
+[stage1:func1]
+(John)
+Hello there!
+:skip:2
+
+[next_scene:func2]
+(Mary)
+answer yes!!
+:end
+)");
+
+  std::string cur_state = "func2";
+  parser.set_precheck([&cur_state](const std::string &expr) -> bool {
+    return cur_state == expr;
+  });
+
+  ASSERT_EQ(parser.next()->get_name(), "Mary");
 }
