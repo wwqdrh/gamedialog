@@ -96,7 +96,10 @@ void Timeline::check_flag() {
       }
     }
     if (isok) {
-      goto_stage(item->get_stage_name());
+      if (current_stage() != item->get_stage_name()) {
+        // 不是当前的，避免重复第一条
+        goto_stage(item->get_stage_name());
+      }
       return;
     }
   }
