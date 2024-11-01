@@ -58,7 +58,7 @@ void DiaStage::initial(const std::vector<std::string> &data) {
 
     // 处理场景标记 [scene], 可能存在标记，例如[stage:flag1;flag2]
     if (line[0] == '[' && line.back() == ']') {
-      auto stage_parts = split(line.substr(1, line.length() - 2), ':');
+      auto stage_parts = split(line.substr(1, line.length() - 2), '@');
       stage_name = stage_parts[0];
       if (stage_parts.size() == 2) {
         stage_flags = split(stage_parts[1], ';');
